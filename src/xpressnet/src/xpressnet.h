@@ -31,6 +31,14 @@ LICENSE:
 
 #define XPRESSNET_BAUD 62500
 
+// Size definitions
+#define XPRESSNET_BUFFER_SIZE  10
+
+// Packet component defines
+#define XPRESSNET_PKT_CALLBYTE  0
+#define XPRESSNET_PKT_HEADER    1
+#define XPRESSNET_PKT_DATA      2
+
 // AVR type-specific stuff
 // Define the UART port and registers used for XBee communication
 // Follows the format of the AVR UART library by Fleury/Sharpe
