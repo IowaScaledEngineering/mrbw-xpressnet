@@ -2,7 +2,7 @@
 Title:    MRBW-XPRESSNET MRBee XpressNet Interface
 Authors:  Michael D. Petersen <railfan@drgw.net>
           Nathan D. Holmes <maverick@drgw.net>
-File:     $Id: $
+File:     mrbw-xpressnet.c
 License:  GNU General Public License v3
 
 LICENSE:
