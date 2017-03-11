@@ -32,7 +32,7 @@ PROGRAMMER_TYPE=usbtiny
 PROGRAMMER_PORT=usb
 
 MRBUS_LIB=./mrbus/src/
-
+XPRESSNET_LIB=./xpressnet/src/
 
 # ATmega164PA 11.0592MHz @ 3.3V
 DEVICE  = atmega1284p
@@ -51,7 +51,7 @@ AVRDUDE = avrdude -P $(PROGRAMMER_PORT) -c $(PROGRAMMER_TYPE) -p $(DEVICE) -B1 -
 AVRDUDE_SLOW = avrdude -P $(PROGRAMMER_PORT) -c $(PROGRAMMER_TYPE) -p $(DEVICE) -B32
 
 OBJS = ${SRCS:.c=.o}
-INCLUDES = -I. -I$(MRBUS_LIB)
+INCLUDES = -I. -I$(MRBUS_LIB) -I$(XPRESSNET_LIB)
 
 CFLAGS = $(INCLUDES) -Wall -O2 -std=gnu99 -ffunction-sections -fdata-sections -fshort-enums
 LDFLAGS = -Wl,-gc-sections

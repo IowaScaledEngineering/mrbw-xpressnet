@@ -27,6 +27,7 @@ LICENSE:
 #include <avr/sleep.h>
 #include <util/delay.h>
 #include "mrbee.h"
+#include "xpressnet-avr.h"
 
 #define MY_ADDRESS 1
 
@@ -109,29 +110,69 @@ uint16_t rxBufferPop(uint8_t snoop)
 
 void serialInit(void)
 {
-#define BAUD 62500
+#undef BAUD
+#define BAUD XPRESSNET_BAUD
 #include <util/setbaud.h>
-	UBRR0 = UBRR_VALUE;
-	UCSR0A = (USE_2X)?_BV(U2X0):0;
-	UCSR0B = _BV(UCSZ02);
-	UCSR0C = _BV(UCSZ01) | _BV(UCSZ00);
+
+#if defined( XPRESSNET_AT90_UART )
+	// FIXME - probably need more stuff here
+	UBRR = (uint8_t)UBRRL_VALUE;
+
+#elif defined( XPRESSNET_ATMEGA_USART_SIMPLE )
+	XPRESSNET_UART_UBRR = UBRR_VALUE;
+	XPRESSNET_UART_CSR_A = (USE_2X)?_BV(U2X):0;
+	XPRESSNET_UART_CSR_B = 0;
+	XPRESSNET_UART_CSR_C = _BV(URSEL) | _BV(UCSZ1) | _BV(UCSZ0);
+	
+#elif defined( XPRESSNET_ATMEGA_USART0_SIMPLE )
+	XPRESSNET_UART_UBRR = UBRR_VALUE;
+	XPRESSNET_UART_CSR_A = (USE_2X)?_BV(U2X0):0;
+	XPRESSNET_UART_CSR_B = 0;
+	XPRESSNET_UART_CSR_C = _BV(URSEL0) | _BV(UCSZ01) | _BV(UCSZ00);
+	
+#elif defined( XPRESSNET_ATMEGA_USART ) || defined ( XPRESSNET_ATMEGA_USART0 )
+	XPRESSNET_UART_UBRR = UBRR_VALUE;
+	XPRESSNET_UART_CSR_A = (USE_2X)?_BV(U2X0):0;
+	XPRESSNET_UART_CSR_B = _BV(UCSZ02);
+	XPRESSNET_UART_CSR_C = _BV(UCSZ01) | _BV(UCSZ00);
+
+#elif defined( XPRESSNET_ATTINY_USART )
+	// Top four bits are reserved and must always be zero - see ATtiny2313 datasheet
+	// Also, H and L must be written independently, since they're non-adjacent registers
+	// on the attiny parts
+	XPRESSNET_UART_UBRRH = 0x0F & UBRRH_VALUE;
+	XPRESSNET_UART_UBRRL = UBRRL_VALUE;
+	XPRESSNET_UART_CSR_A = (USE_2X)?_BV(U2X):0;
+	XPRESSNET_UART_CSR_B = 0;
+	XPRESSNET_UART_CSR_C = _BV(UCSZ1) | _BV(UCSZ0);
+
+#elif defined ( XPRESSNET_ATMEGA_USART1 )
+	XPRESSNET_UART_UBRR = UBRR_VALUE;
+	XPRESSNET_UART_CSR_A = (USE_2X)?_BV(U2X1):0;
+	XPRESSNET_UART_CSR_B = _BV(UCSZ12);
+	XPRESSNET_UART_CSR_C = _BV(UCSZ11) | _BV(UCSZ10);
+#else
+#error "UART for your selected part is not yet defined..."
+#endif
+
+#undef BAUD
 
 	/* Enable USART receiver and transmitter and receive complete interrupt */
 	UCSR0B |= (_BV(RXCIE0) | _BV(RXEN0) | _BV(TXEN0));
 
-	DDRD &= ~(_BV(PD0) | _BV(PD1));  // Set RX and TX as inputs
-	DDRD |= _BV(PD4);  // Set driver enable as output
-	PORTD &= ~(_BV(PD4));  // Disable driver
+	XPRESSNET_DDR &= ~(_BV(XPRESSNET_RX) | _BV(XPRESSNET_TX));  // Set RX and TX as inputs
+	XPRESSNET_DDR |= _BV(XPRESSNET_TXE);  // Set driver enable as output
+	XPRESSNET_PORT &= ~(_BV(XPRESSNET_TXE));  // Disable driver
 }
 
 ISR(USART0_RX_vect)
 {
   uint16_t data = 0;
 
-  if(UCSR0B & _BV(RXB80))
+  if(XPRESSNET_UART_CSR_B & _BV(XPRESSNET_RXB8))
     data |= 0x0100;  // bit 9 set
 
-  data |= UDR0;
+  data |= XPRESSNET_UART_DATA;
   
   rxBufferPush(data);
 }
@@ -143,22 +184,22 @@ uint8_t txBufferEnd = 0;
 ISR(USART0_TX_vect)
 {
 	// Transmit is complete: terminate
-	PORTD &= ~_BV(PD4);  // Disable driver
+	XPRESSNET_PORT &= ~_BV(XPRESSNET_TXE);  // Disable driver
 	// Disable the various transmit interrupts and the transmitter itself
 	// Re-enable receive interrupt (might be killed if no loopback define is on...)
-	UCSR0B = (UCSR0B & ~(_BV(TXCIE0) | _BV(UDRIE0))) | _BV(RXCIE0);
+	XPRESSNET_UART_CSR_B = (XPRESSNET_UART_CSR_B & ~(_BV(XPRESSNET_TXCIE) | _BV(XPRESSNET_UART_UDRIE))) | _BV(XPRESSNET_RXCIE);
 }
 
-ISR(USART0_UDRE_vect)
+ISR(XPRESSNET_UART_TX_INTERRUPT)
 {
-	UDR0 = txBuffer[txBufferIndex++];  //  Get next byte and write to UART
+	XPRESSNET_UART_DATA = txBuffer[txBufferIndex++];  //  Get next byte and write to UART
 
 	if ( (txBufferIndex >= txBufferEnd) || (txBufferIndex >= TX_BUFFER_SIZE) )
 	{
 		//  Done sending data to UART, disable UART interrupt
-		UCSR0A |= _BV(TXC0);
-		UCSR0B &= ~_BV(UDRIE0);
-		UCSR0B |= _BV(TXCIE0);
+		XPRESSNET_UART_CSR_A |= _BV(XPRESSNET_TXC);
+		XPRESSNET_UART_CSR_B &= ~_BV(XPRESSNET_UART_UDRIE);
+		XPRESSNET_UART_CSR_B |= _BV(XPRESSNET_TXCIE);
 	}
 }
 
