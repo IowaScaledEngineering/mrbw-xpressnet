@@ -27,7 +27,7 @@ LICENSE:
 #include <avr/sleep.h>
 #include <util/delay.h>
 #include "mrbee.h"
-#include "xpressnet-avr.h"
+#include "xpressnet.h"
 
 #define MY_ADDRESS 1
 
@@ -105,64 +105,6 @@ uint16_t rxBufferPop(uint8_t snoop)
     }
   }
   return(data);
-}
-
-
-void serialInit(void)
-{
-#undef BAUD
-#define BAUD XPRESSNET_BAUD
-#include <util/setbaud.h>
-
-#if defined( XPRESSNET_AT90_UART )
-	// FIXME - probably need more stuff here
-	UBRR = (uint8_t)UBRRL_VALUE;
-
-#elif defined( XPRESSNET_ATMEGA_USART_SIMPLE )
-	XPRESSNET_UART_UBRR = UBRR_VALUE;
-	XPRESSNET_UART_CSR_A = (USE_2X)?_BV(U2X):0;
-	XPRESSNET_UART_CSR_B = 0;
-	XPRESSNET_UART_CSR_C = _BV(URSEL) | _BV(UCSZ1) | _BV(UCSZ0);
-	
-#elif defined( XPRESSNET_ATMEGA_USART0_SIMPLE )
-	XPRESSNET_UART_UBRR = UBRR_VALUE;
-	XPRESSNET_UART_CSR_A = (USE_2X)?_BV(U2X0):0;
-	XPRESSNET_UART_CSR_B = 0;
-	XPRESSNET_UART_CSR_C = _BV(URSEL0) | _BV(UCSZ01) | _BV(UCSZ00);
-	
-#elif defined( XPRESSNET_ATMEGA_USART ) || defined ( XPRESSNET_ATMEGA_USART0 )
-	XPRESSNET_UART_UBRR = UBRR_VALUE;
-	XPRESSNET_UART_CSR_A = (USE_2X)?_BV(U2X0):0;
-	XPRESSNET_UART_CSR_B = _BV(UCSZ02);
-	XPRESSNET_UART_CSR_C = _BV(UCSZ01) | _BV(UCSZ00);
-
-#elif defined( XPRESSNET_ATTINY_USART )
-	// Top four bits are reserved and must always be zero - see ATtiny2313 datasheet
-	// Also, H and L must be written independently, since they're non-adjacent registers
-	// on the attiny parts
-	XPRESSNET_UART_UBRRH = 0x0F & UBRRH_VALUE;
-	XPRESSNET_UART_UBRRL = UBRRL_VALUE;
-	XPRESSNET_UART_CSR_A = (USE_2X)?_BV(U2X):0;
-	XPRESSNET_UART_CSR_B = 0;
-	XPRESSNET_UART_CSR_C = _BV(UCSZ1) | _BV(UCSZ0);
-
-#elif defined ( XPRESSNET_ATMEGA_USART1 )
-	XPRESSNET_UART_UBRR = UBRR_VALUE;
-	XPRESSNET_UART_CSR_A = (USE_2X)?_BV(U2X1):0;
-	XPRESSNET_UART_CSR_B = _BV(UCSZ12);
-	XPRESSNET_UART_CSR_C = _BV(UCSZ11) | _BV(UCSZ10);
-#else
-#error "UART for your selected part is not yet defined..."
-#endif
-
-#undef BAUD
-
-	/* Enable USART receiver and transmitter and receive complete interrupt */
-	UCSR0B |= (_BV(RXCIE0) | _BV(RXEN0) | _BV(TXEN0));
-
-	XPRESSNET_DDR &= ~(_BV(XPRESSNET_RX) | _BV(XPRESSNET_TX));  // Set RX and TX as inputs
-	XPRESSNET_DDR |= _BV(XPRESSNET_TXE);  // Set driver enable as output
-	XPRESSNET_PORT &= ~(_BV(XPRESSNET_TXE));  // Disable driver
 }
 
 ISR(USART0_RX_vect)
@@ -263,7 +205,7 @@ void init(void)
 
 	initialize100HzTimer();
 
-	serialInit();
+	xpressnetInit();
 }
 
 uint8_t headlightOn = 0;

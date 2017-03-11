@@ -279,6 +279,8 @@ LICENSE:
 #error "Please feel free to add one and send us the patch"
 #endif
 
+void xpressnetInit();
+
 #endif // XPRESSNET_AVR_H
 
 
