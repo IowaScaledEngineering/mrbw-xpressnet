@@ -343,9 +343,9 @@ int main(void)
 				if(txReady)
 				{
 					txReady = 0;
-					UCSR0A |= _BV(TXC0);
-					PORTD |= _BV(PD4);  // Enable driver
-					UCSR0B |= _BV(UDRIE0);
+					XPRESSNET_UART_CSR_A |= _BV(XPRESSNET_TXC);
+					XPRESSNET_PORT |= _BV(XPRESSNET_TXE);  // Enable driver
+					XPRESSNET_UART_CSR_B |= _BV(XPRESSNET_UART_UDRIE);
 				}
 			}
 		}
