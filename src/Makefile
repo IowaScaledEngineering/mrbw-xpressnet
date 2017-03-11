@@ -35,7 +35,7 @@ MRBUS_LIB=./mrbus/src/
 
 
 # ATmega164PA 11.0592MHz @ 3.3V
-DEVICE  = atmega1284
+DEVICE  = atmega1284p
 F_CPU   = 20000000  # Hz
 FUSE_L  = 0xFF
 FUSE_H  = 0xD1
@@ -43,11 +43,11 @@ FUSE_E  = 0xFC
 
 GITREV := 'GIT_REV=0x$(shell git rev-parse --short=6 HEAD)L'
 
-DEFINES := -DMRBEE -D$(GITREV) -DENABLE_WATCHDOG -DHWREV_MAJOR=1 -DHWREV_MINOR=1 -DMRBEE_IGNORE_FLOW
+DEFINES := -DMRBEE -D$(GITREV) -DENABLE_WATCHDOG -DHWREV_MAJOR=1 -DHWREV_MINOR=1 -DMRBEE_IGNORE_FLOW -DMRBEE_ATMEGA_USART1
 SRCS = $(BASE_NAME).c $(MRBUS_LIB)/mrbee-avr.c $(MRBUS_LIB)/mrbus-crc.c $(MRBUS_LIB)/mrbus-queue.c
 INCS = $(MRBUS_LIB)/mrbee.h $(MRBUS_LIB)/mrbee-avr.h lcd.h cst-hardware.h
 
-AVRDUDE = avrdude -P $(PROGRAMMER_PORT) -c $(PROGRAMMER_TYPE) -p $(DEVICE) -B1
+AVRDUDE = avrdude -P $(PROGRAMMER_PORT) -c $(PROGRAMMER_TYPE) -p $(DEVICE) -B1 -F
 AVRDUDE_SLOW = avrdude -P $(PROGRAMMER_PORT) -c $(PROGRAMMER_TYPE) -p $(DEVICE) -B32
 
 OBJS = ${SRCS:.c=.o}
@@ -84,7 +84,7 @@ setup:
 program: fuse flash
 
 terminal:
-	$(AVRDUDE_SLOW) -t
+	$(AVRDUDE) -t
 
 # rule for programming fuse bits:
 fuse:

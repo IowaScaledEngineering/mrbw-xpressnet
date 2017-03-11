@@ -28,6 +28,8 @@ LICENSE:
 #include <util/delay.h>
 #include "mrbee.h"
 
+#define MY_ADDRESS 1
+
 #define MRBUS_TX_BUFFER_DEPTH 16
 #define MRBUS_RX_BUFFER_DEPTH 16
 
@@ -35,6 +37,131 @@ MRBusPacket mrbusTxPktBufferArray[MRBUS_TX_BUFFER_DEPTH];
 MRBusPacket mrbusRxPktBufferArray[MRBUS_RX_BUFFER_DEPTH];
 
 uint8_t mrbus_dev_addr = 0;
+
+
+#define QUEUE_DEPTH 64
+
+uint16_t rxBuffer[QUEUE_DEPTH];
+uint8_t rxHeadIdx, rxTailIdx, rxBufferFull;
+
+#define TX_BUFFER_SIZE 8
+
+uint8_t txBuffer[TX_BUFFER_SIZE];
+
+void rxBufferInitialize(void)
+{
+  ATOMIC_BLOCK(ATOMIC_RESTORESTATE)
+  {
+    rxHeadIdx = rxTailIdx = 0;
+    rxBufferFull = 0;
+  }
+}
+
+uint8_t rxBufferDepth(void)
+{
+  uint8_t result;
+  ATOMIC_BLOCK(ATOMIC_RESTORESTATE)
+  {
+    if(rxBufferFull)
+      return(QUEUE_DEPTH);
+    result = ((uint8_t)(rxHeadIdx - rxTailIdx) % QUEUE_DEPTH);
+  }
+  return(result);
+}
+
+uint8_t rxBufferPush(uint16_t data)
+{
+    // If full, bail with a false
+    if (rxBufferFull)
+      return(0);
+  
+  ATOMIC_BLOCK(ATOMIC_RESTORESTATE)
+  {
+    rxBuffer[rxHeadIdx] = data;
+  
+    if( ++rxHeadIdx >= QUEUE_DEPTH )
+      rxHeadIdx = 0;
+    if (rxHeadIdx == rxTailIdx)
+      rxBufferFull = 1;
+  }
+  return(1);
+}
+
+uint16_t rxBufferPop(uint8_t snoop)
+{
+  uint16_t data;
+    if (0 == rxBufferDepth())
+      return(0);
+  
+  ATOMIC_BLOCK(ATOMIC_RESTORESTATE)
+  {
+    data = rxBuffer[rxTailIdx];
+    if(!snoop)
+    {
+      if( ++rxTailIdx >= QUEUE_DEPTH )
+        rxTailIdx = 0;
+      rxBufferFull = 0;
+    }
+  }
+  return(data);
+}
+
+
+void serialInit(void)
+{
+#define BAUD 62500
+#include <util/setbaud.h>
+	UBRR0 = UBRR_VALUE;
+	UCSR0A = (USE_2X)?_BV(U2X0):0;
+	UCSR0B = _BV(UCSZ02);
+	UCSR0C = _BV(UCSZ01) | _BV(UCSZ00);
+
+	/* Enable USART receiver and transmitter and receive complete interrupt */
+	UCSR0B |= (_BV(RXCIE0) | _BV(RXEN0) | _BV(TXEN0));
+
+	DDRD &= ~(_BV(PD0) | _BV(PD1));  // Set RX and TX as inputs
+	DDRD |= _BV(PD4);  // Set driver enable as output
+	PORTD &= ~(_BV(PD4));  // Disable driver
+}
+
+ISR(USART0_RX_vect)
+{
+  uint16_t data = 0;
+
+  if(UCSR0B & _BV(RXB80))
+    data |= 0x0100;  // bit 9 set
+
+  data |= UDR0;
+  
+  rxBufferPush(data);
+}
+
+volatile uint8_t txBufferIndex = 0;
+uint8_t txBufferEnd = 0;
+
+
+ISR(USART0_TX_vect)
+{
+	// Transmit is complete: terminate
+	PORTD &= ~_BV(PD4);  // Disable driver
+	// Disable the various transmit interrupts and the transmitter itself
+	// Re-enable receive interrupt (might be killed if no loopback define is on...)
+	UCSR0B = (UCSR0B & ~(_BV(TXCIE0) | _BV(UDRIE0))) | _BV(RXCIE0);
+}
+
+ISR(USART0_UDRE_vect)
+{
+	UDR0 = txBuffer[txBufferIndex++];  //  Get next byte and write to UART
+
+	if ( (txBufferIndex >= txBufferEnd) || (txBufferIndex >= TX_BUFFER_SIZE) )
+	{
+		//  Done sending data to UART, disable UART interrupt
+		UCSR0A |= _BV(TXC0);
+		UCSR0B &= ~_BV(UDRIE0);
+		UCSR0B |= _BV(TXCIE0);
+	}
+}
+
 
 void createVersionPacket(uint8_t destAddr, uint8_t *buf)
 {
@@ -61,7 +188,7 @@ void initialize100HzTimer(void)
 {
 	// Set up timer 0 for 100Hz interrupts
 	TCNT0 = 0;
-	OCR0A = 0x6C;  // FIXME for 20MHz
+	OCR0A = 195;  // 20MHz / 1024 / 195 = 100.16Hz
 	ticks = 0;
 	decisecs = 0;
 	TCCR0A = _BV(WGM01);
@@ -94,13 +221,19 @@ void init(void)
 #endif
 
 	initialize100HzTimer();
+
+	serialInit();
 }
+
+uint8_t headlightOn = 0;
 
 int main(void)
 {
-	uint8_t txBuffer[MRBUS_BUFFER_SIZE];
-
+	uint16_t data;
+	uint8_t txReady = 0;
+	
 	init();
+	rxBufferInitialize();
 
 	wdt_reset();
 
@@ -119,14 +252,61 @@ int main(void)
 
 	wdt_reset();
 
+
 	while(1)
 	{
 		wdt_reset();
+		
+		ATOMIC_BLOCK(ATOMIC_RESTORESTATE)
+		{
+			if(decisecs >= 10)
+			{
+				headlightOn ^= 0x01;
+				decisecs = 0;
+
+				txBuffer[0] = 0xE4;
+				txBuffer[1] = 0x20;
+				txBuffer[2] = 0xC0;
+				txBuffer[3] = 0x98;
+				if(headlightOn)
+				{
+					txBuffer[4] = 0x11;
+					txBuffer[5] = 0x8D;
+				}
+				else
+				{
+					txBuffer[4] = 0x10;
+					txBuffer[5] = 0x8C;
+				}
+				txBufferEnd = 6;
+				txBufferIndex = 0;  //FIXME: atomic?
+
+				txReady = 1;
+			}
+		}
 
 		if (mrbusPktQueueDepth(&mrbeeTxQueue))
 		{
 			wdt_reset();
 			mrbeeTransmit();
+		}
+
+		if(rxBufferDepth() > 0)
+		{
+			data = rxBufferPop(0);
+			if((0x140 + MY_ADDRESS) == data)
+			{
+				// FIXME: check parity
+				// FIXME: move into interrupt routine to avoid loading buffer except when for us?
+				// Normal Inquiry to me
+				if(txReady)
+				{
+					txReady = 0;
+					UCSR0A |= _BV(TXC0);
+					PORTD |= _BV(PD4);  // Enable driver
+					UCSR0B |= _BV(UDRIE0);
+				}
+			}
 		}
 
 	}
