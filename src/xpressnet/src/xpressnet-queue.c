@@ -44,10 +44,11 @@ uint8_t xpressnetPktQueuePush(XpressNetPktQueue* q, uint8_t* data, uint8_t dataL
 	if (q->full)
 		return(0);
 
-	dataLen = min(XPRESSNET_BUFFER_SIZE, dataLen+1);
+	dataLen = min(XPRESSNET_BUFFER_SIZE, dataLen);
 	pktPtr = (uint8_t*)q->pktBufferArray[q->headIdx].pkt;
 	memcpy(pktPtr, data, dataLen);
 	memset(pktPtr+dataLen, 0, XPRESSNET_BUFFER_SIZE - dataLen);
+	q->pktBufferArray[q->headIdx].len = dataLen;
 
 	if( ++q->headIdx >= q->pktBufferArraySz )
 		q->headIdx = 0;
@@ -65,11 +66,12 @@ uint8_t xpressnetPktQueuePopInternal(XpressNetPktQueue* q, uint8_t* data, uint8_
 	if (0 == xpressnetPktQueueDepth(q))
 		return(0);
 
-	memcpy(data, (uint8_t*)&(q->pktBufferArray[q->tailIdx].pkt), min(dataLen, (q->pktBufferArray[q->tailIdx].pkt[XPRESSNET_PKT_LEN])+1));
+	uint8_t length = min(dataLen, q->pktBufferArray[q->tailIdx].len);
+	memcpy(data, (uint8_t*)&(q->pktBufferArray[q->tailIdx].pkt), length);
 
 	// Snoop indicates that we shouldn't actually pop the packet off - just copy it out
 	if (snoop)
-		return(1);
+		return(length);
 
 	ATOMIC_BLOCK(ATOMIC_RESTORESTATE)
 	{
@@ -78,7 +80,7 @@ uint8_t xpressnetPktQueuePopInternal(XpressNetPktQueue* q, uint8_t* data, uint8_
 		q->full = 0;
 	}
 
-	return(1);
+	return(length);
 }
 
 uint8_t xpressnetPktQueueDrop(XpressNetPktQueue* q)

@@ -32,6 +32,7 @@ LICENSE:
 #include "xpressnet.h"
 
 static volatile uint8_t xpressnetTxBuffer[XPRESSNET_BUFFER_SIZE];
+static volatile uint8_t xpressnetTxLength=0;
 static volatile uint8_t xpressnetTxIndex=0;
 XpressNetPktQueue xpressnetTxQueue;
 
@@ -48,7 +49,7 @@ ISR(XPRESSNET_UART_TX_INTERRUPT)
 {
 	XPRESSNET_UART_DATA = xpressnetTxBuffer[xpressnetTxIndex++];  //  Get next byte and write to UART
 
-	if (xpressnetTxIndex >= XPRESSNET_BUFFER_SIZE || (xpressnetTxBuffer[XPRESSNET_PKT_LEN]+2) == xpressnetTxIndex)  // +2 since LEN doesn't include length or xor bytes
+	if (xpressnetTxIndex >= XPRESSNET_BUFFER_SIZE || xpressnetTxLength == xpressnetTxIndex)
 	{
 		//  Done sending data to UART, disable UART interrupt
 		XPRESSNET_UART_CSR_A |= _BV(XPRESSNET_TXC);
@@ -73,26 +74,26 @@ uint8_t xpressnetTransmit(void)
 	if (xpressnetTxActive())
 		return(1);
 
-	xpressnetPktQueuePeek(&xpressnetTxQueue, (uint8_t*)xpressnetTxBuffer, sizeof(xpressnetTxBuffer));
+	xpressnetTxLength = xpressnetPktQueuePeek(&xpressnetTxQueue, (uint8_t*)xpressnetTxBuffer, sizeof(xpressnetTxBuffer));
 
 	// If we have no packet length, or it's less than the header, just silently say we transmitted it
 	// On the AVRs, if you don't have any packet length, it'll never clear up on the interrupt routine
 	// and you'll get stuck in indefinite transmit busy
-	if (0 == xpressnetTxBuffer[XPRESSNET_PKT_LEN])
+	if (0 == xpressnetTxLength)
 	{
 		xpressnetPktQueueDrop(&xpressnetTxQueue);
 		return(0);
 	}
-		
+
 	// First Calculate XOR
 	uint8_t xor_byte = 0;
-	for (i=1; i<=xpressnetTxBuffer[XPRESSNET_PKT_LEN]; i++)
+	for (i=0; i<=xpressnetTxLength; i++)
 	{
 		xor_byte ^= xpressnetTxBuffer[i];
 	}
-	xpressnetTxBuffer[xpressnetTxBuffer[XPRESSNET_PKT_LEN]+1] = xor_byte;  // Put it at the end
+	xpressnetTxBuffer[xpressnetTxLength++] = xor_byte;  // Put it at the end
 
-	xpressnetTxIndex = 1;  // Start after length byte
+	xpressnetTxIndex = 0;
 
 	ATOMIC_BLOCK(ATOMIC_FORCEON)
 	{

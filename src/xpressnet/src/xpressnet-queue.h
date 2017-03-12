@@ -6,6 +6,7 @@
 typedef struct 
 {
 	uint8_t pkt[XPRESSNET_BUFFER_SIZE];
+	uint8_t len;
 } XpressNetPacket;
 
 typedef struct

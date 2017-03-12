@@ -122,27 +122,6 @@ ISR(USART0_RX_vect)
 }
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 void createVersionPacket(uint8_t destAddr, uint8_t *buf)
 {
 	buf[MRBUS_PKT_DEST] = destAddr;
@@ -253,20 +232,19 @@ int main(void)
 
 			headlightOn ^= 0x01;
 
-			xpressnetBuffer[0] = 5;
-			xpressnetBuffer[1] = 0xE4;
-			xpressnetBuffer[2] = 0x20;
-			xpressnetBuffer[3] = 0xC0;
-			xpressnetBuffer[4] = 0x98;
+			xpressnetBuffer[0] = 0xE4;
+			xpressnetBuffer[1] = 0x20;
+			xpressnetBuffer[2] = 0xC0;
+			xpressnetBuffer[3] = 0x98;
 			if(headlightOn)
 			{
-				xpressnetBuffer[5] = 0x11;
+				xpressnetBuffer[4] = 0x11;
 			}
 			else
 			{
-				xpressnetBuffer[5] = 0x10;
+				xpressnetBuffer[4] = 0x10;
 			}
-			xpressnetPktQueuePush(&xpressnetTxQueue, xpressnetBuffer, xpressnetBuffer[XPRESSNET_PKT_LEN]);
+			xpressnetPktQueuePush(&xpressnetTxQueue, xpressnetBuffer, 5);
 		}
 
 		if (mrbusPktQueueDepth(&mrbeeTxQueue))
