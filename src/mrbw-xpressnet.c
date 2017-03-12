@@ -109,6 +109,9 @@ uint16_t rxBufferPop(uint8_t snoop)
   return(data);
 }
 
+
+#include <util/parity.h>
+
 ISR(USART0_RX_vect)
 {
   uint16_t data = 0;
@@ -256,9 +259,9 @@ int main(void)
 		if(rxBufferDepth() > 0)
 		{
 			data = rxBufferPop(0);
-			if((0x140 + MY_ADDRESS) == data)
+			if( (!parity_even_bit(data & 0x7F) && ((0x140 + MY_ADDRESS) == data)) ||
+			    ( parity_even_bit(data & 0x7F) && ((0x1C0 + MY_ADDRESS) == data)) )
 			{
-				// FIXME: check parity
 				// FIXME: move into interrupt routine to avoid loading buffer except when for us?
 				// Normal Inquiry to me
 				if(xpressnetPktQueueDepth(&xpressnetTxQueue))
