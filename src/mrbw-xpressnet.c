@@ -32,6 +32,32 @@ LICENSE:
 
 #define MY_ADDRESS 1
 
+
+void debugInit(void)
+{
+	DDRD |= _BV(PD5) | _BV(PD6);
+	PORTD &= ~(_BV(PD5) | _BV(PD6));
+}
+
+void debug5(uint8_t val)
+{
+	if(val)
+		PORTD |= _BV(PD5);
+	else
+		PORTD &= ~_BV(PD5);
+}
+
+void debug6(uint8_t val)
+{
+	if(val)
+		PORTD |= _BV(PD6);
+	else
+		PORTD &= ~_BV(PD6);
+}
+
+
+
+
 #define MRBUS_TX_BUFFER_DEPTH 16
 #define MRBUS_RX_BUFFER_DEPTH 16
 
@@ -112,16 +138,45 @@ uint16_t rxBufferPop(uint8_t snoop)
 
 #include <util/parity.h>
 
-ISR(USART0_RX_vect)
+static volatile uint8_t activeAddress;
+
+uint8_t xpressnetActiveAddress(void)
 {
-  uint16_t data = 0;
+	return(activeAddress);
+}
 
-  if(XPRESSNET_UART_CSR_B & _BV(XPRESSNET_RXB8))
-    data |= 0x0100;  // bit 9 set
+ISR(XPRESSNET_UART_RX_INTERRUPT)
+{
+	uint8_t data = 0;
 
-  data |= XPRESSNET_UART_DATA;
-  
-  rxBufferPush(data);
+		if (XPRESSNET_UART_CSR_A & XPRESSNET_RX_ERR_MASK)
+		{
+				// Handle framing errors
+				data = XPRESSNET_UART_DATA;  // Clear the data register and discard
+		}
+        else
+        {
+			if(XPRESSNET_UART_CSR_B & _BV(XPRESSNET_RXB8))
+			{
+debug5(1);
+				// Bit 9 set, Address byte
+				data = XPRESSNET_UART_DATA;
+				if( (0x40 == (data & 0x60)) )  // (!parity_even_bit(data)) && 
+				{
+					// Normal inquiry
+					activeAddress = data & 0x1F;
+				}
+				else
+				{
+					activeAddress = 0;
+				}
+debug5(0);
+			}
+			else
+			{
+				data = XPRESSNET_UART_DATA;  // Clear the data register and discard
+			}
+        }
 }
 
 
@@ -187,7 +242,6 @@ void init(void)
 
 int main(void)
 {
-	uint16_t data;
 	uint8_t headlightOn = 0;
 	uint16_t decisecs_tmp = 0;
 
@@ -217,6 +271,7 @@ int main(void)
 
 	wdt_reset();
 
+	debugInit();
 
 	while(1)
 	{
@@ -253,22 +308,21 @@ int main(void)
 		if (mrbusPktQueueDepth(&mrbeeTxQueue))
 		{
 			wdt_reset();
-			mrbeeTransmit();
+//			mrbeeTransmit();
 		}
 
-		if(rxBufferDepth() > 0)
+		if(xpressnetActiveAddress() == MY_ADDRESS)
 		{
-			data = rxBufferPop(0);
-			if( (!parity_even_bit(data & 0x7F) && ((0x140 + MY_ADDRESS) == data)) ||
-			    ( parity_even_bit(data & 0x7F) && ((0x1C0 + MY_ADDRESS) == data)) )
+			activeAddress = 0;
+			//FIXME: need to be able to clear active address so it doesn't keep transmitting?
+			// Normal Inquiry to me
+			if(xpressnetPktQueueDepth(&xpressnetTxQueue))
 			{
-				// FIXME: move into interrupt routine to avoid loading buffer except when for us?
-				// Normal Inquiry to me
-				if(xpressnetPktQueueDepth(&xpressnetTxQueue))
-				{
-					wdt_reset();
-					xpressnetTransmit();
-				}
+debug6(1);
+				// Packet pending, so transmit it
+				wdt_reset();
+				xpressnetTransmit();
+debug6(0);
 			}
 		}
 

@@ -36,11 +36,11 @@ static volatile uint8_t xpressnetTxLength=0;
 static volatile uint8_t xpressnetTxIndex=0;
 XpressNetPktQueue xpressnetTxQueue;
 
-ISR(USART0_TX_vect)
+ISR(XPRESSNET_UART_DONE_INTERRUPT)
 {
 	// Transmit is complete: terminate
 	XPRESSNET_PORT &= ~_BV(XPRESSNET_TXE);  // Disable driver
-	// Disable the various transmit interrupts and the transmitter itself
+	// Disable the various transmit interrupts
 	// Re-enable receive interrupt
 	XPRESSNET_UART_CSR_B = (XPRESSNET_UART_CSR_B & ~(_BV(XPRESSNET_TXCIE) | _BV(XPRESSNET_UART_UDRIE))) | _BV(XPRESSNET_RXCIE);
 }
@@ -165,7 +165,7 @@ void xpressnetInit(void)
 #undef BAUD
 
 	/* Enable USART receiver and transmitter and receive complete interrupt */
-	UCSR0B |= (_BV(RXCIE0) | _BV(RXEN0) | _BV(TXEN0));
+	XPRESSNET_UART_CSR_B |= (_BV(XPRESSNET_RXCIE) | _BV(XPRESSNET_RXEN) | _BV(XPRESSNET_TXEN));
 
 	XPRESSNET_DDR &= ~(_BV(XPRESSNET_RX) | _BV(XPRESSNET_TX));  // Set RX and TX as inputs
 	XPRESSNET_DDR |= _BV(XPRESSNET_TXE);  // Set driver enable as output
