@@ -39,6 +39,8 @@ MRBusPacket mrbusRxPktBufferArray[MRBUS_RX_BUFFER_DEPTH];
 
 uint8_t mrbus_dev_addr = 0;
 
+volatile uint8_t txInProgress = 0;
+
 
 #define QUEUE_DEPTH 64
 
@@ -130,6 +132,7 @@ ISR(USART0_TX_vect)
 	// Disable the various transmit interrupts and the transmitter itself
 	// Re-enable receive interrupt (might be killed if no loopback define is on...)
 	XPRESSNET_UART_CSR_B = (XPRESSNET_UART_CSR_B & ~(_BV(XPRESSNET_TXCIE) | _BV(XPRESSNET_UART_UDRIE))) | _BV(XPRESSNET_RXCIE);
+	txInProgress = 0;
 }
 
 ISR(XPRESSNET_UART_TX_INTERRUPT)
@@ -208,11 +211,10 @@ void init(void)
 	xpressnetInit();
 }
 
-uint8_t headlightOn = 0;
-
 int main(void)
 {
 	uint16_t data;
+	uint8_t headlightOn = 0;
 	uint8_t txReady = 0;
 	
 	init();
@@ -242,7 +244,7 @@ int main(void)
 		
 		ATOMIC_BLOCK(ATOMIC_RESTORESTATE)
 		{
-			if(decisecs >= 10)
+			if((decisecs >= 10) && !txInProgress)
 			{
 				headlightOn ^= 0x01;
 				decisecs = 0;
@@ -285,6 +287,7 @@ int main(void)
 				if(txReady)
 				{
 					txReady = 0;
+					txInProgress = 1;
 					XPRESSNET_UART_CSR_A |= _BV(XPRESSNET_TXC);
 					XPRESSNET_PORT |= _BV(XPRESSNET_TXE);  // Enable driver
 					XPRESSNET_UART_CSR_B |= _BV(XPRESSNET_UART_UDRIE);
