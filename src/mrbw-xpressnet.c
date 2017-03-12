@@ -223,7 +223,7 @@ int main(void)
 		{
 			decisecs_tmp = decisecs;
 		}
-		if((decisecs_tmp >= 10) && !xpressnetTxActive())
+		if(decisecs_tmp >= 10)
 		{
 			ATOMIC_BLOCK(ATOMIC_RESTORESTATE)
 			{
