@@ -72,69 +72,6 @@ XpressNetPacket xpressnetTxPktBufferArray[XPRESSNET_TX_BUFFER_DEPTH];
 uint8_t mrbus_dev_addr = 0;
 
 
-#define QUEUE_DEPTH 64
-
-uint16_t rxBuffer[QUEUE_DEPTH];
-uint8_t rxHeadIdx, rxTailIdx, rxBufferFull;
-
-void rxBufferInitialize(void)
-{
-  ATOMIC_BLOCK(ATOMIC_RESTORESTATE)
-  {
-    rxHeadIdx = rxTailIdx = 0;
-    rxBufferFull = 0;
-  }
-}
-
-uint8_t rxBufferDepth(void)
-{
-  uint8_t result;
-  ATOMIC_BLOCK(ATOMIC_RESTORESTATE)
-  {
-    if(rxBufferFull)
-      return(QUEUE_DEPTH);
-    result = ((uint8_t)(rxHeadIdx - rxTailIdx) % QUEUE_DEPTH);
-  }
-  return(result);
-}
-
-uint8_t rxBufferPush(uint16_t data)
-{
-    // If full, bail with a false
-    if (rxBufferFull)
-      return(0);
-  
-  ATOMIC_BLOCK(ATOMIC_RESTORESTATE)
-  {
-    rxBuffer[rxHeadIdx] = data;
-  
-    if( ++rxHeadIdx >= QUEUE_DEPTH )
-      rxHeadIdx = 0;
-    if (rxHeadIdx == rxTailIdx)
-      rxBufferFull = 1;
-  }
-  return(1);
-}
-
-uint16_t rxBufferPop(uint8_t snoop)
-{
-  uint16_t data;
-    if (0 == rxBufferDepth())
-      return(0);
-  
-  ATOMIC_BLOCK(ATOMIC_RESTORESTATE)
-  {
-    data = rxBuffer[rxTailIdx];
-    if(!snoop)
-    {
-      if( ++rxTailIdx >= QUEUE_DEPTH )
-        rxTailIdx = 0;
-      rxBufferFull = 0;
-    }
-  }
-  return(data);
-}
-
 
 #include <util/parity.h>
 
@@ -142,7 +79,9 @@ static volatile uint8_t activeAddress;
 
 uint8_t xpressnetActiveAddress(void)
 {
-	return(activeAddress);
+	uint8_t addr = activeAddress;
+	activeAddress = 0;
+	return(addr);
 }
 
 ISR(XPRESSNET_UART_RX_INTERRUPT)
@@ -158,7 +97,6 @@ ISR(XPRESSNET_UART_RX_INTERRUPT)
         {
 			if(XPRESSNET_UART_CSR_B & _BV(XPRESSNET_RXB8))
 			{
-debug5(1);
 				// Bit 9 set, Address byte
 				data = XPRESSNET_UART_DATA;
 				if( (0x40 == (data & 0x60)) )  // (!parity_even_bit(data)) && 
@@ -170,7 +108,6 @@ debug5(1);
 				{
 					activeAddress = 0;
 				}
-debug5(0);
 			}
 			else
 			{
@@ -249,7 +186,6 @@ int main(void)
 	uint8_t xpressnetBuffer[XPRESSNET_BUFFER_SIZE];
 	
 	init();
-	rxBufferInitialize();
 
 	wdt_reset();
 
@@ -313,16 +249,12 @@ int main(void)
 
 		if(xpressnetActiveAddress() == MY_ADDRESS)
 		{
-			activeAddress = 0;
-			//FIXME: need to be able to clear active address so it doesn't keep transmitting?
 			// Normal Inquiry to me
 			if(xpressnetPktQueueDepth(&xpressnetTxQueue))
 			{
-debug6(1);
 				// Packet pending, so transmit it
 				wdt_reset();
 				xpressnetTransmit();
-debug6(0);
 			}
 		}
 
