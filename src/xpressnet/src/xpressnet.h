@@ -29,15 +29,9 @@ LICENSE:
 #ifndef XPRESSNET_AVR_H
 #define XPRESSNET_AVR_H
 
-#define XPRESSNET_BAUD 62500
-
-// Size definitions
-#define XPRESSNET_BUFFER_SIZE  10
-
-// Packet component defines
-#define XPRESSNET_PKT_CALLBYTE  0
-#define XPRESSNET_PKT_HEADER    1
-#define XPRESSNET_PKT_DATA      2
+#include "xpressnet-constants.h"
+#include "xpressnet-macros.h"
+#include "xpressnet-queue.h"
 
 // AVR type-specific stuff
 // Define the UART port and registers used for XBee communication

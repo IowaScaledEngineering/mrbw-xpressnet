@@ -37,19 +37,18 @@ LICENSE:
 MRBusPacket mrbusTxPktBufferArray[MRBUS_TX_BUFFER_DEPTH];
 MRBusPacket mrbusRxPktBufferArray[MRBUS_RX_BUFFER_DEPTH];
 
-uint8_t mrbus_dev_addr = 0;
+#define XPRESSNET_TX_BUFFER_DEPTH 16
 
-volatile uint8_t txInProgress = 0;
+XpressNetPacket xpressnetTxPktBufferArray[XPRESSNET_TX_BUFFER_DEPTH];
+
+
+uint8_t mrbus_dev_addr = 0;
 
 
 #define QUEUE_DEPTH 64
 
 uint16_t rxBuffer[QUEUE_DEPTH];
 uint8_t rxHeadIdx, rxTailIdx, rxBufferFull;
-
-#define TX_BUFFER_SIZE 8
-
-uint8_t txBuffer[TX_BUFFER_SIZE];
 
 void rxBufferInitialize(void)
 {
@@ -121,25 +120,33 @@ ISR(USART0_RX_vect)
   rxBufferPush(data);
 }
 
-volatile uint8_t txBufferIndex = 0;
-uint8_t txBufferEnd = 0;
 
+
+
+
+
+
+
+
+
+static volatile uint8_t xpressnetTxBuffer[XPRESSNET_BUFFER_SIZE];
+static volatile uint8_t xpressnetTxIndex=0;
+XpressNetPktQueue xpressnetTxQueue;
 
 ISR(USART0_TX_vect)
 {
 	// Transmit is complete: terminate
 	XPRESSNET_PORT &= ~_BV(XPRESSNET_TXE);  // Disable driver
 	// Disable the various transmit interrupts and the transmitter itself
-	// Re-enable receive interrupt (might be killed if no loopback define is on...)
+	// Re-enable receive interrupt
 	XPRESSNET_UART_CSR_B = (XPRESSNET_UART_CSR_B & ~(_BV(XPRESSNET_TXCIE) | _BV(XPRESSNET_UART_UDRIE))) | _BV(XPRESSNET_RXCIE);
-	txInProgress = 0;
 }
 
 ISR(XPRESSNET_UART_TX_INTERRUPT)
 {
-	XPRESSNET_UART_DATA = txBuffer[txBufferIndex++];  //  Get next byte and write to UART
+	XPRESSNET_UART_DATA = xpressnetTxBuffer[xpressnetTxIndex++];  //  Get next byte and write to UART
 
-	if ( (txBufferIndex >= txBufferEnd) || (txBufferIndex >= TX_BUFFER_SIZE) )
+	if (xpressnetTxIndex >= XPRESSNET_BUFFER_SIZE || (xpressnetTxBuffer[XPRESSNET_PKT_LEN]+2) == xpressnetTxIndex)  // +2 since LEN doesn't include length or xor bytes
 	{
 		//  Done sending data to UART, disable UART interrupt
 		XPRESSNET_UART_CSR_A |= _BV(XPRESSNET_TXC);
@@ -147,6 +154,74 @@ ISR(XPRESSNET_UART_TX_INTERRUPT)
 		XPRESSNET_UART_CSR_B |= _BV(XPRESSNET_TXCIE);
 	}
 }
+
+uint8_t xpressnetTxActive() 
+{
+	return(XPRESSNET_UART_CSR_B & (_BV(XPRESSNET_UART_UDRIE) | _BV(XPRESSNET_TXCIE)));
+}
+
+uint8_t xpressnetTransmit(void)
+{
+	uint8_t i;
+
+	if (xpressnetPktQueueEmpty(&xpressnetTxQueue))
+		return(0);
+
+	//  Return if bus already active.
+	if (xpressnetTxActive())
+		return(1);
+
+	xpressnetPktQueuePeek(&xpressnetTxQueue, (uint8_t*)xpressnetTxBuffer, sizeof(xpressnetTxBuffer));
+
+	// If we have no packet length, or it's less than the header, just silently say we transmitted it
+	// On the AVRs, if you don't have any packet length, it'll never clear up on the interrupt routine
+	// and you'll get stuck in indefinite transmit busy
+	if (0 == xpressnetTxBuffer[XPRESSNET_PKT_LEN])
+	{
+		xpressnetPktQueueDrop(&xpressnetTxQueue);
+		return(0);
+	}
+		
+	// First Calculate XOR
+	uint8_t xor_byte = 0;
+	for (i=1; i<=xpressnetTxBuffer[XPRESSNET_PKT_LEN]; i++)
+	{
+		xor_byte ^= xpressnetTxBuffer[i];
+	}
+	xpressnetTxBuffer[xpressnetTxBuffer[XPRESSNET_PKT_LEN]+1] = xor_byte;  // Put it at the end
+
+	xpressnetTxIndex = 1;  // Start after length byte
+
+	ATOMIC_BLOCK(ATOMIC_FORCEON)
+	{
+		/* Enable transmitter since control over bus is assumed */
+//		MRBUS_UART_CSR_B |= _BV(MRBUS_TXEN);
+		XPRESSNET_UART_CSR_A |= _BV(XPRESSNET_TXC);
+		XPRESSNET_PORT |= _BV(XPRESSNET_TXE);
+
+		// Disable receive interrupt while transmitting
+		XPRESSNET_UART_CSR_B &= ~_BV(XPRESSNET_RXCIE);
+
+		// Enable transmit interrupt
+		XPRESSNET_UART_CSR_B |= _BV(XPRESSNET_UART_UDRIE);
+	}
+
+	xpressnetPktQueueDrop(&xpressnetTxQueue);
+
+	return(0);
+}
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 void createVersionPacket(uint8_t destAddr, uint8_t *buf)
@@ -207,15 +282,16 @@ void init(void)
 #endif
 
 	initialize100HzTimer();
-
-	xpressnetInit();
 }
 
 int main(void)
 {
 	uint16_t data;
 	uint8_t headlightOn = 0;
-	uint8_t txReady = 0;
+	uint16_t decisecs_tmp = 0;
+
+	uint8_t mrbusBuffer[MRBUS_BUFFER_SIZE];
+	uint8_t xpressnetBuffer[XPRESSNET_BUFFER_SIZE];
 	
 	init();
 	rxBufferInitialize();
@@ -227,13 +303,16 @@ int main(void)
 	mrbusPktQueueInitialize(&mrbeeRxQueue, mrbusRxPktBufferArray, MRBUS_RX_BUFFER_DEPTH);
 	mrbeeInit();
 
+	xpressnetPktQueueInitialize(&xpressnetTxQueue, xpressnetTxPktBufferArray, XPRESSNET_TX_BUFFER_DEPTH);
+	xpressnetInit();
+
 	sei();	
 
 	wdt_reset();
 
 	// Fire off initial reset version packet
-	createVersionPacket(0xFF, txBuffer);
-	mrbusPktQueuePush(&mrbeeTxQueue, txBuffer, txBuffer[MRBUS_PKT_LEN]);
+	createVersionPacket(0xFF, mrbusBuffer);
+	mrbusPktQueuePush(&mrbeeTxQueue, mrbusBuffer, mrbusBuffer[MRBUS_PKT_LEN]);
 
 	wdt_reset();
 
@@ -244,30 +323,31 @@ int main(void)
 		
 		ATOMIC_BLOCK(ATOMIC_RESTORESTATE)
 		{
-			if((decisecs >= 10) && !txInProgress)
+			decisecs_tmp = decisecs;
+		}
+		if((decisecs_tmp >= 10) && !xpressnetTxActive())
+		{
+			ATOMIC_BLOCK(ATOMIC_RESTORESTATE)
 			{
-				headlightOn ^= 0x01;
 				decisecs = 0;
-
-				txBuffer[0] = 0xE4;
-				txBuffer[1] = 0x20;
-				txBuffer[2] = 0xC0;
-				txBuffer[3] = 0x98;
-				if(headlightOn)
-				{
-					txBuffer[4] = 0x11;
-					txBuffer[5] = 0x8D;
-				}
-				else
-				{
-					txBuffer[4] = 0x10;
-					txBuffer[5] = 0x8C;
-				}
-				txBufferEnd = 6;
-				txBufferIndex = 0;  //FIXME: atomic?
-
-				txReady = 1;
 			}
+
+			headlightOn ^= 0x01;
+
+			xpressnetBuffer[0] = 5;
+			xpressnetBuffer[1] = 0xE4;
+			xpressnetBuffer[2] = 0x20;
+			xpressnetBuffer[3] = 0xC0;
+			xpressnetBuffer[4] = 0x98;
+			if(headlightOn)
+			{
+				xpressnetBuffer[5] = 0x11;
+			}
+			else
+			{
+				xpressnetBuffer[5] = 0x10;
+			}
+			xpressnetPktQueuePush(&xpressnetTxQueue, xpressnetBuffer, xpressnetBuffer[XPRESSNET_PKT_LEN]);
 		}
 
 		if (mrbusPktQueueDepth(&mrbeeTxQueue))
@@ -284,13 +364,10 @@ int main(void)
 				// FIXME: check parity
 				// FIXME: move into interrupt routine to avoid loading buffer except when for us?
 				// Normal Inquiry to me
-				if(txReady)
+				if(xpressnetPktQueueDepth(&xpressnetTxQueue))
 				{
-					txReady = 0;
-					txInProgress = 1;
-					XPRESSNET_UART_CSR_A |= _BV(XPRESSNET_TXC);
-					XPRESSNET_PORT |= _BV(XPRESSNET_TXE);  // Enable driver
-					XPRESSNET_UART_CSR_B |= _BV(XPRESSNET_UART_UDRIE);
+					wdt_reset();
+					xpressnetTransmit();
 				}
 			}
 		}
