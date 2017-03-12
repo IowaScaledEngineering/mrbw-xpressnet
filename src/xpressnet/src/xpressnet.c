@@ -27,7 +27,92 @@ LICENSE:
 *************************************************************************/
 
 #include <avr/io.h>
+#include <avr/interrupt.h>
+#include <util/atomic.h>
 #include "xpressnet.h"
+
+static volatile uint8_t xpressnetTxBuffer[XPRESSNET_BUFFER_SIZE];
+static volatile uint8_t xpressnetTxIndex=0;
+XpressNetPktQueue xpressnetTxQueue;
+
+ISR(USART0_TX_vect)
+{
+	// Transmit is complete: terminate
+	XPRESSNET_PORT &= ~_BV(XPRESSNET_TXE);  // Disable driver
+	// Disable the various transmit interrupts and the transmitter itself
+	// Re-enable receive interrupt
+	XPRESSNET_UART_CSR_B = (XPRESSNET_UART_CSR_B & ~(_BV(XPRESSNET_TXCIE) | _BV(XPRESSNET_UART_UDRIE))) | _BV(XPRESSNET_RXCIE);
+}
+
+ISR(XPRESSNET_UART_TX_INTERRUPT)
+{
+	XPRESSNET_UART_DATA = xpressnetTxBuffer[xpressnetTxIndex++];  //  Get next byte and write to UART
+
+	if (xpressnetTxIndex >= XPRESSNET_BUFFER_SIZE || (xpressnetTxBuffer[XPRESSNET_PKT_LEN]+2) == xpressnetTxIndex)  // +2 since LEN doesn't include length or xor bytes
+	{
+		//  Done sending data to UART, disable UART interrupt
+		XPRESSNET_UART_CSR_A |= _BV(XPRESSNET_TXC);
+		XPRESSNET_UART_CSR_B &= ~_BV(XPRESSNET_UART_UDRIE);
+		XPRESSNET_UART_CSR_B |= _BV(XPRESSNET_TXCIE);
+	}
+}
+
+uint8_t xpressnetTxActive() 
+{
+	return(XPRESSNET_UART_CSR_B & (_BV(XPRESSNET_UART_UDRIE) | _BV(XPRESSNET_TXCIE)));
+}
+
+uint8_t xpressnetTransmit(void)
+{
+	uint8_t i;
+
+	if (xpressnetPktQueueEmpty(&xpressnetTxQueue))
+		return(0);
+
+	//  Return if bus already active.
+	if (xpressnetTxActive())
+		return(1);
+
+	xpressnetPktQueuePeek(&xpressnetTxQueue, (uint8_t*)xpressnetTxBuffer, sizeof(xpressnetTxBuffer));
+
+	// If we have no packet length, or it's less than the header, just silently say we transmitted it
+	// On the AVRs, if you don't have any packet length, it'll never clear up on the interrupt routine
+	// and you'll get stuck in indefinite transmit busy
+	if (0 == xpressnetTxBuffer[XPRESSNET_PKT_LEN])
+	{
+		xpressnetPktQueueDrop(&xpressnetTxQueue);
+		return(0);
+	}
+		
+	// First Calculate XOR
+	uint8_t xor_byte = 0;
+	for (i=1; i<=xpressnetTxBuffer[XPRESSNET_PKT_LEN]; i++)
+	{
+		xor_byte ^= xpressnetTxBuffer[i];
+	}
+	xpressnetTxBuffer[xpressnetTxBuffer[XPRESSNET_PKT_LEN]+1] = xor_byte;  // Put it at the end
+
+	xpressnetTxIndex = 1;  // Start after length byte
+
+	ATOMIC_BLOCK(ATOMIC_FORCEON)
+	{
+		/* Enable transmitter since control over bus is assumed */
+//		MRBUS_UART_CSR_B |= _BV(MRBUS_TXEN);
+		XPRESSNET_UART_CSR_A |= _BV(XPRESSNET_TXC);
+		XPRESSNET_PORT |= _BV(XPRESSNET_TXE);
+
+		// Disable receive interrupt while transmitting
+		XPRESSNET_UART_CSR_B &= ~_BV(XPRESSNET_RXCIE);
+
+		// Enable transmit interrupt
+		XPRESSNET_UART_CSR_B |= _BV(XPRESSNET_UART_UDRIE);
+	}
+
+	xpressnetPktQueueDrop(&xpressnetTxQueue);
+
+	return(0);
+}
+
 
 void xpressnetInit(void)
 {

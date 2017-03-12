@@ -281,7 +281,11 @@ LICENSE:
 #error "Please feel free to add one and send us the patch"
 #endif
 
+extern XpressNetPktQueue xpressnetTxQueue;
+
 void xpressnetInit();
+uint8_t xpressnetTxActive();
+uint8_t xpressnetTransmit();
 
 #endif // XPRESSNET_AVR_H
 
