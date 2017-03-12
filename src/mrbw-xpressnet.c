@@ -56,8 +56,6 @@ void debug6(uint8_t val)
 }
 
 
-
-
 #define MRBUS_TX_BUFFER_DEPTH 16
 #define MRBUS_RX_BUFFER_DEPTH 16
 
@@ -71,50 +69,6 @@ XpressNetPacket xpressnetTxPktBufferArray[XPRESSNET_TX_BUFFER_DEPTH];
 
 uint8_t mrbus_dev_addr = 0;
 
-
-
-#include <util/parity.h>
-
-static volatile uint8_t activeAddress;
-
-uint8_t xpressnetActiveAddress(void)
-{
-	uint8_t addr = activeAddress;
-	activeAddress = 0;
-	return(addr);
-}
-
-ISR(XPRESSNET_UART_RX_INTERRUPT)
-{
-	uint8_t data = 0;
-
-		if (XPRESSNET_UART_CSR_A & XPRESSNET_RX_ERR_MASK)
-		{
-				// Handle framing errors
-				data = XPRESSNET_UART_DATA;  // Clear the data register and discard
-		}
-        else
-        {
-			if(XPRESSNET_UART_CSR_B & _BV(XPRESSNET_RXB8))
-			{
-				// Bit 9 set, Address byte
-				data = XPRESSNET_UART_DATA;
-				if( (0x40 == (data & 0x60)) )  // (!parity_even_bit(data)) && 
-				{
-					// Normal inquiry
-					activeAddress = data & 0x1F;
-				}
-				else
-				{
-					activeAddress = 0;
-				}
-			}
-			else
-			{
-				data = XPRESSNET_UART_DATA;  // Clear the data register and discard
-			}
-        }
-}
 
 
 void createVersionPacket(uint8_t destAddr, uint8_t *buf)

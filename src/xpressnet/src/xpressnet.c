@@ -36,6 +36,49 @@ static volatile uint8_t xpressnetTxLength=0;
 static volatile uint8_t xpressnetTxIndex=0;
 XpressNetPktQueue xpressnetTxQueue;
 
+#include <util/parity.h>
+
+static volatile uint8_t activeAddress;
+
+uint8_t xpressnetActiveAddress(void)
+{
+	uint8_t addr = activeAddress;
+	activeAddress = 0;
+	return(addr);
+}
+
+ISR(XPRESSNET_UART_RX_INTERRUPT)
+{
+	uint8_t data = 0;
+
+		if (XPRESSNET_UART_CSR_A & XPRESSNET_RX_ERR_MASK)
+		{
+				// Handle framing errors
+				data = XPRESSNET_UART_DATA;  // Clear the data register and discard
+		}
+        else
+        {
+			if(XPRESSNET_UART_CSR_B & _BV(XPRESSNET_RXB8))
+			{
+				// Bit 9 set, Address byte
+				data = XPRESSNET_UART_DATA;
+				if( (0x40 == (data & 0x60)) )  // (!parity_even_bit(data)) && 
+				{
+					// Normal inquiry
+					activeAddress = data & 0x1F;
+				}
+				else
+				{
+					activeAddress = 0;
+				}
+			}
+			else
+			{
+				data = XPRESSNET_UART_DATA;  // Clear the data register and discard
+			}
+        }
+}
+
 ISR(XPRESSNET_UART_DONE_INTERRUPT)
 {
 	// Transmit is complete: terminate

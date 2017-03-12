@@ -283,9 +283,10 @@ LICENSE:
 
 extern XpressNetPktQueue xpressnetTxQueue;
 
-void xpressnetInit();
-uint8_t xpressnetTxActive();
-uint8_t xpressnetTransmit();
+uint8_t xpressnetActiveAddress(void);
+uint8_t xpressnetTxActive(void);
+uint8_t xpressnetTransmit(void);
+void xpressnetInit(void);
 
 #endif // XPRESSNET_AVR_H
 
