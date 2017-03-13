@@ -117,11 +117,6 @@ ISR(XPRESSNET_UART_TX_INTERRUPT)
 	}
 }
 
-/*uint8_t xpressnetTxActive() */
-/*{*/
-/*	return(XPRESSNET_UART_CSR_B & (_BV(XPRESSNET_UART_UDRIE) | _BV(XPRESSNET_TXCIE)));*/
-/*}*/
-
 uint8_t xpressnetTransmit(void)
 {
 	uint8_t i;
