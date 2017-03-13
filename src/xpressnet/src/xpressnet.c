@@ -32,8 +32,10 @@ LICENSE:
 #include "xpressnet.h"
 
 static volatile uint8_t xpressnetTxBuffer[XPRESSNET_BUFFER_SIZE];
-static volatile uint8_t xpressnetTxLength=0;
-static volatile uint8_t xpressnetTxIndex=0;
+static volatile uint8_t xpressnetTxLength = 0;
+static volatile uint8_t xpressnetTxAddr = 0;
+static volatile uint8_t xpressnetTxIndex = 0;
+static volatile uint8_t xpressnetTxPending = 0;
 XpressNetPktQueue xpressnetTxQueue;
 
 #include <util/parity.h>
@@ -66,6 +68,21 @@ ISR(XPRESSNET_UART_RX_INTERRUPT)
 				{
 					// Normal inquiry
 					activeAddress = data & 0x1F;
+					
+					if(xpressnetTxPending && (activeAddress == xpressnetTxAddr))
+					{
+						/* Enable transmitter since control over bus is assumed */
+						XPRESSNET_UART_CSR_A |= _BV(XPRESSNET_TXC);
+						XPRESSNET_PORT |= _BV(XPRESSNET_TXE);
+
+						// Disable receive interrupt while transmitting
+						XPRESSNET_UART_CSR_B &= ~_BV(XPRESSNET_RXCIE);
+
+						// Enable transmit interrupt
+						XPRESSNET_UART_CSR_B |= _BV(XPRESSNET_UART_UDRIE);
+						
+						xpressnetTxPending = 0;
+					}
 				}
 				else
 				{
@@ -114,7 +131,7 @@ uint8_t xpressnetTransmit(void)
 		return(0);
 
 	//  Return if bus already active.
-	if (xpressnetTxActive())
+	if (xpressnetTxActive() || xpressnetTxPending)
 		return(1);
 
 	xpressnetTxLength = xpressnetPktQueuePeek(&xpressnetTxQueue, (uint8_t*)xpressnetTxBuffer, sizeof(xpressnetTxBuffer));
@@ -137,28 +154,16 @@ uint8_t xpressnetTransmit(void)
 	xpressnetTxBuffer[xpressnetTxLength++] = xor_byte;  // Put it at the end
 
 	xpressnetTxIndex = 0;
-
-	ATOMIC_BLOCK(ATOMIC_FORCEON)
-	{
-		/* Enable transmitter since control over bus is assumed */
-//		MRBUS_UART_CSR_B |= _BV(MRBUS_TXEN);
-		XPRESSNET_UART_CSR_A |= _BV(XPRESSNET_TXC);
-		XPRESSNET_PORT |= _BV(XPRESSNET_TXE);
-
-		// Disable receive interrupt while transmitting
-		XPRESSNET_UART_CSR_B &= ~_BV(XPRESSNET_RXCIE);
-
-		// Enable transmit interrupt
-		XPRESSNET_UART_CSR_B |= _BV(XPRESSNET_UART_UDRIE);
-	}
-
+	
 	xpressnetPktQueueDrop(&xpressnetTxQueue);
+
+	xpressnetTxPending = 1;  // Notify RX routine that a packet is ready to go
 
 	return(0);
 }
 
 
-void xpressnetInit(void)
+void xpressnetInit(uint8_t addr)
 {
 #undef BAUD
 #define BAUD XPRESSNET_BAUD
@@ -206,6 +211,8 @@ void xpressnetInit(void)
 #endif
 
 #undef BAUD
+
+	xpressnetTxAddr = addr;
 
 	/* Enable USART receiver and transmitter and receive complete interrupt */
 	XPRESSNET_UART_CSR_B |= (_BV(XPRESSNET_RXCIE) | _BV(XPRESSNET_RXEN) | _BV(XPRESSNET_TXEN));

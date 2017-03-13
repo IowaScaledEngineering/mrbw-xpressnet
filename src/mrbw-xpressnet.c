@@ -30,7 +30,7 @@ LICENSE:
 #include "mrbee.h"
 #include "xpressnet.h"
 
-#define MY_ADDRESS 1
+#define XPRESSNET_ADDRESS 5
 
 
 void debugInit(void)
@@ -149,7 +149,7 @@ int main(void)
 	mrbeeInit();
 
 	xpressnetPktQueueInitialize(&xpressnetTxQueue, xpressnetTxPktBufferArray, XPRESSNET_TX_BUFFER_DEPTH);
-	xpressnetInit();
+	xpressnetInit(XPRESSNET_ADDRESS);
 
 	sei();	
 
@@ -180,17 +180,31 @@ int main(void)
 
 			headlightOn ^= 0x01;
 
-			xpressnetBuffer[0] = 0xE4;
+			xpressnetBuffer[0] = 0xE4;  // Loco 152, FN1
 			xpressnetBuffer[1] = 0x20;
 			xpressnetBuffer[2] = 0xC0;
 			xpressnetBuffer[3] = 0x98;
 			if(headlightOn)
 			{
-				xpressnetBuffer[4] = 0x11;
+				xpressnetBuffer[4] = 0x01;
 			}
 			else
 			{
+				xpressnetBuffer[4] = 0x00;
+			}
+			xpressnetPktQueuePush(&xpressnetTxQueue, xpressnetBuffer, 5);
+
+			xpressnetBuffer[0] = 0xE4;  // Loco 340, FN0
+			xpressnetBuffer[1] = 0x20;
+			xpressnetBuffer[2] = 0xC1;
+			xpressnetBuffer[3] = 0x54;
+			if(headlightOn)
+			{
 				xpressnetBuffer[4] = 0x10;
+			}
+			else
+			{
+				xpressnetBuffer[4] = 0x00;
 			}
 			xpressnetPktQueuePush(&xpressnetTxQueue, xpressnetBuffer, 5);
 		}
@@ -201,16 +215,16 @@ int main(void)
 //			mrbeeTransmit();
 		}
 
-		if(xpressnetActiveAddress() == MY_ADDRESS)
-		{
+//		if(xpressnetActiveAddress() == MY_ADDRESS)
+//		{
 			// Normal Inquiry to me
 			if(xpressnetPktQueueDepth(&xpressnetTxQueue))
 			{
-				// Packet pending, so transmit it
+				// Packet pending, so queue it up for transmit
 				wdt_reset();
 				xpressnetTransmit();
 			}
-		}
+//		}
 
 	}
 

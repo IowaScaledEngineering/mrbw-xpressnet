@@ -286,7 +286,7 @@ extern XpressNetPktQueue xpressnetTxQueue;
 uint8_t xpressnetActiveAddress(void);
 uint8_t xpressnetTxActive(void);
 uint8_t xpressnetTransmit(void);
-void xpressnetInit(void);
+void xpressnetInit(uint8_t addr);
 
 #endif // XPRESSNET_AVR_H
 
