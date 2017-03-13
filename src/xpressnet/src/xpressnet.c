@@ -80,8 +80,6 @@ ISR(XPRESSNET_UART_RX_INTERRUPT)
 
 						// Enable transmit interrupt
 						XPRESSNET_UART_CSR_B |= _BV(XPRESSNET_UART_UDRIE);
-						
-						xpressnetTxPending = 0;
 					}
 				}
 				else
@@ -103,6 +101,7 @@ ISR(XPRESSNET_UART_DONE_INTERRUPT)
 	// Disable the various transmit interrupts
 	// Re-enable receive interrupt
 	XPRESSNET_UART_CSR_B = (XPRESSNET_UART_CSR_B & ~(_BV(XPRESSNET_TXCIE) | _BV(XPRESSNET_UART_UDRIE))) | _BV(XPRESSNET_RXCIE);
+	xpressnetTxPending = 0;
 }
 
 ISR(XPRESSNET_UART_TX_INTERRUPT)
@@ -118,10 +117,10 @@ ISR(XPRESSNET_UART_TX_INTERRUPT)
 	}
 }
 
-uint8_t xpressnetTxActive() 
-{
-	return(XPRESSNET_UART_CSR_B & (_BV(XPRESSNET_UART_UDRIE) | _BV(XPRESSNET_TXCIE)));
-}
+/*uint8_t xpressnetTxActive() */
+/*{*/
+/*	return(XPRESSNET_UART_CSR_B & (_BV(XPRESSNET_UART_UDRIE) | _BV(XPRESSNET_TXCIE)));*/
+/*}*/
 
 uint8_t xpressnetTransmit(void)
 {
@@ -131,7 +130,7 @@ uint8_t xpressnetTransmit(void)
 		return(0);
 
 	//  Return if bus already active.
-	if (xpressnetTxActive() || xpressnetTxPending)
+	if (xpressnetTxPending)
 		return(1);
 
 	xpressnetTxLength = xpressnetPktQueuePeek(&xpressnetTxQueue, (uint8_t*)xpressnetTxBuffer, sizeof(xpressnetTxBuffer));
