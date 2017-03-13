@@ -32,7 +32,7 @@ LICENSE:
 
 #define XPRESSNET_ADDRESS 5
 
-
+#ifdef DEBUG
 void debugInit(void)
 {
 	DDRD |= _BV(PD5) | _BV(PD6);
@@ -54,7 +54,7 @@ void debug6(uint8_t val)
 	else
 		PORTD &= ~_BV(PD6);
 }
-
+#endif
 
 #define MRBUS_TX_BUFFER_DEPTH 16
 #define MRBUS_RX_BUFFER_DEPTH 16
@@ -161,7 +161,9 @@ int main(void)
 
 	wdt_reset();
 
+#ifdef DEBUG
 	debugInit();
+#endif
 
 	while(1)
 	{
@@ -212,20 +214,17 @@ int main(void)
 		if (mrbusPktQueueDepth(&mrbeeTxQueue))
 		{
 			wdt_reset();
-//			mrbeeTransmit();
+#ifndef DEBUG
+			mrbeeTransmit();
+#endif
 		}
 
-//		if(xpressnetActiveAddress() == MY_ADDRESS)
-//		{
-			// Normal Inquiry to me
-			if(xpressnetPktQueueDepth(&xpressnetTxQueue))
-			{
-				// Packet pending, so queue it up for transmit
-				wdt_reset();
-				xpressnetTransmit();
-			}
-//		}
-
+		if(xpressnetPktQueueDepth(&xpressnetTxQueue))
+		{
+			// Packet pending, so queue it up for transmit
+			wdt_reset();
+			xpressnetTransmit();
+		}
 	}
 
 }
