@@ -65,7 +65,7 @@ MRBusPacket mrbusRxPktBufferArray[MRBUS_RX_BUFFER_DEPTH];
 #define XPRESSNET_TX_BUFFER_DEPTH 16
 
 XpressNetPacket xpressnetTxPktBufferArray[XPRESSNET_TX_BUFFER_DEPTH];
-
+uint8_t xpressnetBuffer[XPRESSNET_BUFFER_SIZE];
 
 uint8_t mrbus_dev_addr = 0;
 
@@ -75,7 +75,7 @@ void createVersionPacket(uint8_t destAddr, uint8_t *buf)
 {
 	buf[MRBUS_PKT_DEST] = destAddr;
 	buf[MRBUS_PKT_SRC] = mrbus_dev_addr;
-	buf[MRBUS_PKT_LEN] = 15;
+	buf[MRBUS_PKT_LEN] = 20;
 	buf[MRBUS_PKT_TYPE] = 'v';
 	buf[6]  = MRBUS_VERSION_WIRELESS;
 	// Software Revision
@@ -84,9 +84,192 @@ void createVersionPacket(uint8_t destAddr, uint8_t *buf)
 	buf[9]  = 0xFF & (GIT_REV); // Software Revision
 	buf[10]  = HWREV_MAJOR; // Hardware Major Revision
 	buf[11]  = HWREV_MINOR; // Hardware Minor Revision
-	buf[12] = 'C';
-	buf[13] = 'S';
-	buf[14] = 'T';
+	buf[12] = 'X';
+	buf[13] = 'P';
+	buf[14] = 'R';
+	buf[15] = 'E';
+	buf[16] = 'S';
+	buf[17] = 'N';
+	buf[18] = 'E';
+	buf[19] = 'T';
+}
+
+void PktHandler(void)
+{
+	uint16_t crc = 0;
+	uint8_t i;
+	uint8_t rxBuffer[MRBUS_BUFFER_SIZE];
+	uint8_t txBuffer[MRBUS_BUFFER_SIZE];
+
+	if (0 == mrbusPktQueuePop(&mrbeeRxQueue, rxBuffer, sizeof(rxBuffer)))
+		return;
+
+	//*************** PACKET FILTER ***************
+	// Loopback Test - did we send it?  If so, we probably want to ignore it
+	if (rxBuffer[MRBUS_PKT_SRC] == mrbus_dev_addr) 
+		goto	PktIgnore;
+
+	// Destination Test - is this for us or broadcast?  If not, ignore
+	if (0xFF != rxBuffer[MRBUS_PKT_DEST] && mrbus_dev_addr != rxBuffer[MRBUS_PKT_DEST]) 
+		goto	PktIgnore;
+	
+	// CRC16 Test - is the packet intact?
+	for(i=0; i<rxBuffer[MRBUS_PKT_LEN]; i++)
+	{
+		if ((i != MRBUS_PKT_CRC_H) && (i != MRBUS_PKT_CRC_L)) 
+			crc = mrbusCRC16Update(crc, rxBuffer[i]);
+	}
+	if ((UINT16_HIGH_BYTE(crc) != rxBuffer[MRBUS_PKT_CRC_H]) || (UINT16_LOW_BYTE(crc) != rxBuffer[MRBUS_PKT_CRC_L]))
+		goto	PktIgnore;
+		
+	//*************** END PACKET FILTER ***************
+
+
+	//*************** PACKET HANDLER - PROCESS HERE ***************
+
+	// Just smash the transmit buffer if we happen to see a packet directed to us
+	// that requires an immediate response
+	//
+	// If we're in here, then either we're transmitting, then we can't be 
+	// receiving from someone else, or we failed to transmit whatever we were sending
+	// and we're waiting to try again.  Either way, we're not going to corrupt an
+	// in-progress transmission.
+	//
+	// All other non-immediate transmissions (such as scheduled status updates)
+	// should be sent out of the main loop so that they don't step on things in
+	// the transmit buffer
+	
+	if ('A' == rxBuffer[MRBUS_PKT_TYPE])
+	{
+		// PING packet
+		txBuffer[MRBUS_PKT_DEST] = rxBuffer[MRBUS_PKT_SRC];
+		txBuffer[MRBUS_PKT_SRC] = mrbus_dev_addr;
+		txBuffer[MRBUS_PKT_LEN] = 6;
+		txBuffer[MRBUS_PKT_TYPE] = 'a';
+		mrbusPktQueuePush(&mrbeeTxQueue, txBuffer, txBuffer[MRBUS_PKT_LEN]);
+		goto PktIgnore;
+	} 
+	else if ('W' == rxBuffer[MRBUS_PKT_TYPE]) 
+	{
+		// EEPROM WRITE Packet
+		txBuffer[MRBUS_PKT_DEST] = rxBuffer[MRBUS_PKT_SRC];
+		txBuffer[MRBUS_PKT_LEN] = 8;			
+		txBuffer[MRBUS_PKT_TYPE] = 'w';
+		eeprom_write_byte((uint8_t*)(uint16_t)rxBuffer[6], rxBuffer[7]);
+		txBuffer[6] = rxBuffer[6];
+		txBuffer[7] = rxBuffer[7];
+		if (MRBUS_EE_DEVICE_ADDR == rxBuffer[6])
+			mrbus_dev_addr = eeprom_read_byte((uint8_t*)MRBUS_EE_DEVICE_ADDR);
+		txBuffer[MRBUS_PKT_SRC] = mrbus_dev_addr;
+		mrbusPktQueuePush(&mrbeeTxQueue, txBuffer, txBuffer[MRBUS_PKT_LEN]);
+		goto PktIgnore;	
+	}
+	else if ('R' == rxBuffer[MRBUS_PKT_TYPE]) 
+	{
+		// EEPROM READ Packet
+		txBuffer[MRBUS_PKT_DEST] = rxBuffer[MRBUS_PKT_SRC];
+		txBuffer[MRBUS_PKT_SRC] = mrbus_dev_addr;
+		txBuffer[MRBUS_PKT_LEN] = 8;			
+		txBuffer[MRBUS_PKT_TYPE] = 'r';
+		txBuffer[6] = rxBuffer[6];
+		txBuffer[7] = eeprom_read_byte((uint8_t*)(uint16_t)rxBuffer[6]);			
+		mrbusPktQueuePush(&mrbeeTxQueue, txBuffer, txBuffer[MRBUS_PKT_LEN]);
+		goto PktIgnore;
+	}
+	else if ('V' == rxBuffer[MRBUS_PKT_TYPE]) 
+	{
+		// Version
+		createVersionPacket(rxBuffer[MRBUS_PKT_SRC], txBuffer);
+		mrbusPktQueuePush(&mrbeeTxQueue, txBuffer, txBuffer[MRBUS_PKT_LEN]);
+		goto PktIgnore;
+	}
+	else if ('X' == rxBuffer[MRBUS_PKT_TYPE]) 
+	{
+		// Reset
+		cli();
+		wdt_reset();
+		MCUSR &= ~(_BV(WDRF));
+		WDTCSR |= _BV(WDE) | _BV(WDCE);
+		WDTCSR = _BV(WDE);
+		while(1);  // Force a watchdog reset
+		sei();
+	}
+	else if (('S' == rxBuffer[MRBUS_PKT_TYPE]) && (mrbus_dev_addr == rxBuffer[MRBUS_PKT_DEST]))
+	{
+		// Status packet and addressed to us
+		uint16_t locoAddress = ((uint16_t)rxBuffer[6] << 8) + rxBuffer[7];
+		uint8_t speedDirection = rxBuffer[8];
+		uint32_t functions = ((uint32_t)rxBuffer[9] << 24) + ((uint32_t)rxBuffer[10] << 16) + ((uint16_t)rxBuffer[11] << 8) + rxBuffer[12];
+
+		// Send Speed/Direction
+		xpressnetBuffer[0] = 0xE4;  // Speed & Direction, 128 speed steps
+		xpressnetBuffer[1] = 0x13;
+		xpressnetBuffer[2] = (locoAddress >> 8) & 0x3F;  // Locomotive Address
+		xpressnetBuffer[3] = locoAddress & 0xFF;
+		xpressnetBuffer[4] = speedDirection;
+		xpressnetPktQueuePush(&xpressnetTxQueue, xpressnetBuffer, 5);
+
+		// Send function states
+		xpressnetBuffer[0] = 0xE4;  // Function Group 1
+		xpressnetBuffer[1] = 0x20;
+		xpressnetBuffer[2] = (locoAddress >> 8) & 0x3F;  // Locomotive Address
+		xpressnetBuffer[3] = locoAddress & 0xFF;
+		xpressnetBuffer[4] = ((functions & 0x01) << 4) | ((functions & 0x1E) >> 1);  // F0 F4 F3 F2 F1
+		xpressnetPktQueuePush(&xpressnetTxQueue, xpressnetBuffer, 5);
+
+		xpressnetBuffer[0] = 0xE4;  // Function Group 2
+		xpressnetBuffer[1] = 0x21;
+		xpressnetBuffer[2] = (locoAddress >> 8) & 0x3F;  // Locomotive Address
+		xpressnetBuffer[3] = locoAddress & 0xFF;
+		xpressnetBuffer[4] = (functions >> 5) & 0xF;  // F8 F7 F6 F5
+		xpressnetPktQueuePush(&xpressnetTxQueue, xpressnetBuffer, 5);
+
+		xpressnetBuffer[0] = 0xE4;  // Function Group 3
+		xpressnetBuffer[1] = 0x22;
+		xpressnetBuffer[2] = (locoAddress >> 8) & 0x3F;  // Locomotive Address
+		xpressnetBuffer[3] = locoAddress & 0xFF;
+		xpressnetBuffer[4] = (functions >> 9) & 0xF;  // F12 F11 F10 F9
+		xpressnetPktQueuePush(&xpressnetTxQueue, xpressnetBuffer, 5);
+
+		xpressnetBuffer[0] = 0xE4;  // Function Group 4 (http://www.opendcc.net/elektronik/opendcc/xpressnet_commands_e.html)
+		xpressnetBuffer[1] = 0x23;
+		xpressnetBuffer[2] = (locoAddress >> 8) & 0x3F;  // Locomotive Address
+		xpressnetBuffer[3] = locoAddress & 0xFF;
+		xpressnetBuffer[4] = (functions >> 13) & 0xFF;  // F20 - F13
+		xpressnetPktQueuePush(&xpressnetTxQueue, xpressnetBuffer, 5);
+
+		xpressnetBuffer[0] = 0xE4;  // Function Group 5 (http://www.opendcc.net/elektronik/opendcc/xpressnet_commands_e.html)
+		xpressnetBuffer[1] = 0x28;
+		xpressnetBuffer[2] = (locoAddress >> 8) & 0x3F;  // Locomotive Address
+		xpressnetBuffer[3] = locoAddress & 0xFF;
+		xpressnetBuffer[4] = (functions >> 21) & 0xFF;  // F28 - F21
+		xpressnetPktQueuePush(&xpressnetTxQueue, xpressnetBuffer, 5);
+	}
+
+	//*************** END PACKET HANDLER  ***************
+
+	
+	//*************** RECEIVE CLEANUP ***************
+PktIgnore:
+	// Yes, I hate gotos as well, but sometimes they're a really handy and efficient
+	// way to jump to a common block of cleanup code at the end of a function 
+
+	// This section resets anything that needs to be reset in order to allow us to receive
+	// another packet.  Typically, that's just clearing the MRBUS_RX_PKT_READY flag to 
+	// indicate to the core library that the mrbus_rx_buffer is clear.
+	return;	
+}
+
+void readConfig(void)
+{
+	// Initialize MRBus address from EEPROM
+	mrbus_dev_addr = eeprom_read_byte((uint8_t*)MRBUS_EE_DEVICE_ADDR);
+	// Bogus addresses, fix to default address
+	if (0xFF == mrbus_dev_addr || 0x00 == mrbus_dev_addr)
+	{
+		mrbus_dev_addr = 0xE0;
+		eeprom_write_byte((uint8_t*)MRBUS_EE_DEVICE_ADDR, mrbus_dev_addr);
+	}
 }
 
 volatile uint8_t ticks;
@@ -128,6 +311,8 @@ void init(void)
 	wdt_disable();
 #endif
 
+	readConfig();
+
 	initialize100HzTimer();
 }
 
@@ -137,8 +322,7 @@ int main(void)
 	uint16_t decisecs_tmp = 0;
 
 	uint8_t mrbusBuffer[MRBUS_BUFFER_SIZE];
-	uint8_t xpressnetBuffer[XPRESSNET_BUFFER_SIZE];
-	
+
 	init();
 
 	wdt_reset();
@@ -169,46 +353,38 @@ int main(void)
 	{
 		wdt_reset();
 		
-		ATOMIC_BLOCK(ATOMIC_RESTORESTATE)
+/*		ATOMIC_BLOCK(ATOMIC_RESTORESTATE)*/
+/*		{*/
+/*			decisecs_tmp = decisecs;*/
+/*		}*/
+/*		if(decisecs_tmp >= 10)*/
+/*		{*/
+/*			ATOMIC_BLOCK(ATOMIC_RESTORESTATE)*/
+/*			{*/
+/*				decisecs = 0;*/
+/*			}*/
+
+/*			headlightOn ^= 0x01;*/
+
+/*			xpressnetBuffer[0] = 0xE4;  // Loco 3, FN1*/
+/*			xpressnetBuffer[1] = 0x20;*/
+/*			xpressnetBuffer[2] = 0x00;*/
+/*			xpressnetBuffer[3] = 0x03;*/
+/*			if(headlightOn)*/
+/*			{*/
+/*				xpressnetBuffer[4] = 0x10;*/
+/*			}*/
+/*			else*/
+/*			{*/
+/*				xpressnetBuffer[4] = 0x00;*/
+/*			}*/
+/*			xpressnetPktQueuePush(&xpressnetTxQueue, xpressnetBuffer, 5);*/
+/*		}*/
+
+		// Handle any MRBus packets that may have come in
+		if (mrbusPktQueueDepth(&mrbeeRxQueue))
 		{
-			decisecs_tmp = decisecs;
-		}
-		if(decisecs_tmp >= 10)
-		{
-			ATOMIC_BLOCK(ATOMIC_RESTORESTATE)
-			{
-				decisecs = 0;
-			}
-
-			headlightOn ^= 0x01;
-
-			xpressnetBuffer[0] = 0xE4;  // Loco 152, FN1
-			xpressnetBuffer[1] = 0x20;
-			xpressnetBuffer[2] = 0xC0;
-			xpressnetBuffer[3] = 0x98;
-			if(headlightOn)
-			{
-				xpressnetBuffer[4] = 0x01;
-			}
-			else
-			{
-				xpressnetBuffer[4] = 0x00;
-			}
-			xpressnetPktQueuePush(&xpressnetTxQueue, xpressnetBuffer, 5);
-
-			xpressnetBuffer[0] = 0xE4;  // Loco 340, FN0
-			xpressnetBuffer[1] = 0x20;
-			xpressnetBuffer[2] = 0xC1;
-			xpressnetBuffer[3] = 0x54;
-			if(headlightOn)
-			{
-				xpressnetBuffer[4] = 0x10;
-			}
-			else
-			{
-				xpressnetBuffer[4] = 0x00;
-			}
-			xpressnetPktQueuePush(&xpressnetTxQueue, xpressnetBuffer, 5);
+			PktHandler();
 		}
 
 		if (mrbusPktQueueDepth(&mrbeeTxQueue))
