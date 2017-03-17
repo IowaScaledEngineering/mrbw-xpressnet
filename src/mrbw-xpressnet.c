@@ -318,9 +318,6 @@ void init(void)
 
 int main(void)
 {
-	uint8_t headlightOn = 0;
-	uint16_t decisecs_tmp = 0;
-
 	uint8_t mrbusBuffer[MRBUS_BUFFER_SIZE];
 
 	init();
@@ -353,6 +350,8 @@ int main(void)
 	{
 		wdt_reset();
 		
+/*		uint8_t headlightOn = 0;*/
+/*		uint16_t decisecs_tmp = 0;*/
 /*		ATOMIC_BLOCK(ATOMIC_RESTORESTATE)*/
 /*		{*/
 /*			decisecs_tmp = decisecs;*/
