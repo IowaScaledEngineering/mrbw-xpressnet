@@ -203,6 +203,8 @@ void PktHandler(void)
 		uint8_t speedDirection = rxBuffer[8];
 		uint32_t functions = ((uint32_t)rxBuffer[9] << 24) + ((uint32_t)rxBuffer[10] << 16) + ((uint16_t)rxBuffer[11] << 8) + rxBuffer[12];
 
+		uint8_t statusFlags = rxBuffer[13];
+
 		// Send Speed/Direction
 		xpressnetBuffer[0] = 0xE4;  // Speed & Direction, 128 speed steps
 		xpressnetBuffer[1] = 0x13;
