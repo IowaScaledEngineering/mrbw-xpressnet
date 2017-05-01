@@ -320,7 +320,8 @@ void init(void)
 
 int main(void)
 {
-	uint8_t mrbusBuffer[MRBUS_BUFFER_SIZE];
+	uint8_t mrbusTxBuffer[MRBUS_BUFFER_SIZE];
+	uint16_t decisecs_tmp = 0;
 
 	init();
 
@@ -339,8 +340,8 @@ int main(void)
 	wdt_reset();
 
 	// Fire off initial reset version packet
-	createVersionPacket(0xFF, mrbusBuffer);
-	mrbusPktQueuePush(&mrbeeTxQueue, mrbusBuffer, mrbusBuffer[MRBUS_PKT_LEN]);
+	createVersionPacket(0xFF, mrbusTxBuffer);
+	mrbusPktQueuePush(&mrbeeTxQueue, mrbusTxBuffer, mrbusTxBuffer[MRBUS_PKT_LEN]);
 
 	wdt_reset();
 
@@ -353,7 +354,6 @@ int main(void)
 		wdt_reset();
 		
 /*		uint8_t headlightOn = 0;*/
-/*		uint16_t decisecs_tmp = 0;*/
 /*		ATOMIC_BLOCK(ATOMIC_RESTORESTATE)*/
 /*		{*/
 /*			decisecs_tmp = decisecs;*/
@@ -381,6 +381,21 @@ int main(void)
 /*			}*/
 /*			xpressnetPktQueuePush(&xpressnetTxQueue, xpressnetBuffer, 5);*/
 /*		}*/
+
+		ATOMIC_BLOCK(ATOMIC_RESTORESTATE)
+		{
+			decisecs_tmp = decisecs;
+		}
+		if(decisecs_tmp >= 10)
+		{
+			// Send "I'm here" message every second so throttles know communication is active
+			createVersionPacket(0xFF, mrbusTxBuffer);
+			mrbusPktQueuePush(&mrbeeTxQueue, mrbusTxBuffer, mrbusTxBuffer[MRBUS_PKT_LEN]);
+			ATOMIC_BLOCK(ATOMIC_RESTORESTATE)
+			{
+				decisecs = 0;
+			}
+		}
 
 		// Handle any MRBus packets that may have come in
 		if (mrbusPktQueueDepth(&mrbeeRxQueue))
