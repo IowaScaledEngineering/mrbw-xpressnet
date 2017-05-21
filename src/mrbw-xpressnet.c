@@ -359,35 +359,6 @@ int main(void)
 
 		readDipSwitches();
 		
-/*		uint8_t headlightOn = 0;*/
-/*		ATOMIC_BLOCK(ATOMIC_RESTORESTATE)*/
-/*		{*/
-/*			decisecs_tmp = decisecs;*/
-/*		}*/
-/*		if(decisecs_tmp >= 10)*/
-/*		{*/
-/*			ATOMIC_BLOCK(ATOMIC_RESTORESTATE)*/
-/*			{*/
-/*				decisecs = 0;*/
-/*			}*/
-
-/*			headlightOn ^= 0x01;*/
-
-/*			xpressnetBuffer[0] = 0xE4;  // Loco 3, FN1*/
-/*			xpressnetBuffer[1] = 0x20;*/
-/*			xpressnetBuffer[2] = 0x00;*/
-/*			xpressnetBuffer[3] = 0x03;*/
-/*			if(headlightOn)*/
-/*			{*/
-/*				xpressnetBuffer[4] = 0x10;*/
-/*			}*/
-/*			else*/
-/*			{*/
-/*				xpressnetBuffer[4] = 0x00;*/
-/*			}*/
-/*			xpressnetPktQueuePush(&xpressnetTxQueue, xpressnetBuffer, 5);*/
-/*		}*/
-
 		ATOMIC_BLOCK(ATOMIC_RESTORESTATE)
 		{
 			decisecs_tmp = decisecs;
