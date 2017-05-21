@@ -30,8 +30,6 @@ LICENSE:
 #include "mrbee.h"
 #include "xpressnet.h"
 
-#define XPRESSNET_ADDRESS 5
-
 #ifdef DEBUG
 void debugInit(void)
 {
@@ -264,18 +262,6 @@ PktIgnore:
 	return;	
 }
 
-void readConfig(void)
-{
-	// Initialize MRBus address from EEPROM
-	mrbus_dev_addr = eeprom_read_byte((uint8_t*)MRBUS_EE_DEVICE_ADDR);
-	// Bogus addresses, fix to default address
-	if (0xFF == mrbus_dev_addr || 0x00 == mrbus_dev_addr)
-	{
-		mrbus_dev_addr = 0xE0;
-		eeprom_write_byte((uint8_t*)MRBUS_EE_DEVICE_ADDR, mrbus_dev_addr);
-	}
-}
-
 volatile uint8_t ticks;
 volatile uint16_t decisecs = 0;
 
@@ -315,9 +301,24 @@ void init(void)
 	wdt_disable();
 #endif
 
-	readConfig();
+	// Configure DIP switches
+	DDRC &= 0x07;  // PC3 - PC7 = inputs
+	PORTC |= 0xF8; // PC3 - PC7 pullups enabled
 
 	initialize100HzTimer();
+}
+
+uint8_t oldSwitches = 0xFF;  // Default to something that can never be set on switches so it updates them the first time
+
+void readDipSwitches(void)
+{
+	uint8_t switches = PINC >> 3;
+	if(oldSwitches != switches)
+	{
+		xpressnetInit(switches);
+		mrbus_dev_addr = 0xD0 + switches;
+		oldSwitches = switches;
+	}
 }
 
 int main(void)
@@ -328,14 +329,15 @@ int main(void)
 	init();
 
 	wdt_reset();
-
+	
 	// Initialize MRBus core
 	mrbusPktQueueInitialize(&mrbeeTxQueue, mrbusTxPktBufferArray, MRBUS_TX_BUFFER_DEPTH);
 	mrbusPktQueueInitialize(&mrbeeRxQueue, mrbusRxPktBufferArray, MRBUS_RX_BUFFER_DEPTH);
-	mrbeeInit();
 
 	xpressnetPktQueueInitialize(&xpressnetTxQueue, xpressnetTxPktBufferArray, XPRESSNET_TX_BUFFER_DEPTH);
-	xpressnetInit(XPRESSNET_ADDRESS);
+
+	readDipSwitches();  // xpressnetInit will be called here
+	mrbeeInit();
 
 	sei();	
 
@@ -354,6 +356,8 @@ int main(void)
 	while(1)
 	{
 		wdt_reset();
+
+		readDipSwitches();
 		
 /*		uint8_t headlightOn = 0;*/
 /*		ATOMIC_BLOCK(ATOMIC_RESTORESTATE)*/
