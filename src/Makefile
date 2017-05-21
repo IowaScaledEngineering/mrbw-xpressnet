@@ -34,7 +34,7 @@ PROGRAMMER_PORT=usb
 MRBUS_LIB=./mrbus/src/
 XPRESSNET_LIB=./xpressnet/src/
 
-# ATmega164PA 11.0592MHz @ 3.3V
+# ATmega1284 20MHz @ 5V
 DEVICE  = atmega1284p
 F_CPU   = 20000000  # Hz
 FUSE_L  = 0xFF
@@ -48,7 +48,7 @@ SRCS = $(BASE_NAME).c $(MRBUS_LIB)/mrbee-avr.c $(MRBUS_LIB)/mrbus-crc.c $(MRBUS_
 INCS = $(MRBUS_LIB)/mrbee.h $(MRBUS_LIB)/mrbee-avr.h lcd.h cst-hardware.h
 
 AVRDUDE = avrdude -P $(PROGRAMMER_PORT) -c $(PROGRAMMER_TYPE) -p $(DEVICE) -B1 -F
-AVRDUDE_SLOW = avrdude -P $(PROGRAMMER_PORT) -c $(PROGRAMMER_TYPE) -p $(DEVICE) -B32
+AVRDUDE_SLOW = avrdude -P $(PROGRAMMER_PORT) -c $(PROGRAMMER_TYPE) -p $(DEVICE) -B32 -F
 
 OBJS = ${SRCS:.c=.o}
 INCLUDES = -I. -I$(MRBUS_LIB) -I$(XPRESSNET_LIB)
